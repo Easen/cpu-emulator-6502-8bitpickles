@@ -3,11 +3,67 @@ fn main() {
     println!("Hello, world!");
 }
 
+trait Executable {
+    fn execute(&self, cpu: &mut Cpu, program: &Bytes);
+}
+
+struct BRK {}
+impl Executable for BRK {
+    fn execute(&self, cpu: &mut Cpu, _program: &Bytes) {
+        cpu.halt();
+    }
+}
+struct LDA {}
+impl Executable for LDA {
+    fn execute(&self, cpu: &mut Cpu, program: &Bytes) {
+        let value = program[cpu.program_counter + 1];
+        cpu.register_a = value;
+        cpu.program_counter = cpu.program_counter + 2
+    }
+}
+
+struct ADC {}
+impl Executable for ADC {
+    fn execute(&self, cpu: &mut Cpu, program: &Bytes) {
+        let value = program[cpu.program_counter + 1];
+        cpu.register_a = cpu.register_a + value;
+        cpu.program_counter = cpu.program_counter + 2;
+    }
+}
+
+struct STA {}
+impl Executable for STA {
+    fn execute(&self, cpu: &mut Cpu, program: &Bytes) {
+        let mem_location: u8 = program[cpu.program_counter + 1];
+        cpu.memory[mem_location as usize] = cpu.register_a;
+        cpu.program_counter = cpu.program_counter + 2
+    }
+}
+
+#[derive(Debug)]
+enum LookupError {
+    OpCodeNotFound,
+}
+type LookupResult = Result<Box<dyn Executable>, LookupError>;
+struct CpuInstruction {}
+impl CpuInstruction {
+    fn lookup_op_code(op_code: u8) -> LookupResult {
+        match op_code {
+            b'\x00' => Ok(Box::new(BRK {})),
+            b'\x01' => Ok(Box::new(LDA {})),
+            b'\x02' => Ok(Box::new(ADC {})),
+            b'\x03' => Ok(Box::new(STA {})),
+            _ => Err(LookupError::OpCodeNotFound),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Cpu {
     pub program_counter: usize,
     pub register_a: u8,
     memory: BytesMut,
+    halt: bool,
 }
 impl Cpu {
     #[inline]
@@ -21,36 +77,20 @@ impl Cpu {
             program_counter: 0,
             register_a: 0,
             memory: memory,
+            halt: false,
         }
     }
+    fn halt(&mut self) {
+        self.halt = true;
+    }
+
     #[allow(dead_code)]
     fn run_program(&mut self, program: &Bytes) {
-        let mut halt = false;
-        while halt == false && self.program_counter < program.len() {
+        while self.halt == false && self.program_counter < program.len() {
             let op_code = program[self.program_counter];
-            match op_code {
-                b'\x00' => halt = true,
-
-                b'\x01' => {
-                    let value = program[self.program_counter + 1];
-                    self.register_a = value;
-                    self.program_counter = self.program_counter + 2
-                }
-                b'\x02' => {
-                    let value = program[self.program_counter + 1];
-                    self.register_a = self.register_a + value;
-                    self.program_counter = self.program_counter + 2;
-                }
-                b'\x03' => {
-                    let mem_location: u8 = program[self.program_counter + 1];
-                    self.memory[mem_location as usize] = self.register_a;
-                    self.program_counter = self.program_counter + 2
-                }
-                _ => {
-                    print!("Unknown opcode");
-                    self.program_counter = self.program_counter + 1
-                }
-            }
+            CpuInstruction::lookup_op_code(op_code)
+                .unwrap()
+                .execute(self, program);
         }
     }
 }
