@@ -75,7 +75,7 @@ impl Executable for STA_X {
 struct DEY {}
 impl Executable for DEY {
     fn execute(&self, cpu: &mut Cpu) {
-        cpu.register_y = cpu.register_y - 1;
+        cpu.register_y += -1;
     }
 }
 struct LDY {}
@@ -83,6 +83,22 @@ impl Executable for LDY {
     fn execute(&self, cpu: &mut Cpu) {
         cpu.advance();
         cpu.register_y = cpu.current();
+    }
+}
+struct JSR {}
+impl Executable for JSR {
+    fn execute(&self, cpu: &mut Cpu) {
+        cpu.advance();
+        cpu.memory[cpu.stack_pointer] = cpu.program_counter as i32;
+        cpu.stack_pointer -= 1;
+        cpu.program_counter = (cpu.current() - 1).min(0) as usize;
+    }
+}
+struct RTS {}
+impl Executable for RTS {
+    fn execute(&self, cpu: &mut Cpu) {
+        cpu.stack_pointer += 1;
+        cpu.program_counter = cpu.memory[cpu.stack_pointer].min(0) as usize + 1;
     }
 }
 
@@ -112,6 +128,8 @@ impl CpuInstructionSet for MOS6502CpuInstructionSet {
             8 => Ok(Box::new(STA_X {})),
             9 => Ok(Box::new(DEY {})),
             10 => Ok(Box::new(LDY {})),
+            11 => Ok(Box::new(JSR {})),
+            12 => Ok(Box::new(RTS {})),
             _ => Err(LookupError::OpCodeNotFound),
         }
     }
@@ -124,6 +142,7 @@ enum CpuError {
 
 struct Cpu {
     pub program_counter: usize,
+    pub stack_pointer: usize,
     pub register_a: i32,
     pub register_x: i32,
     pub register_y: i32,
@@ -139,6 +158,7 @@ impl Cpu {
         let memory = vec![0; 512];
         Cpu {
             program_counter: 0,
+            stack_pointer: memory.len() - 1,
             register_a: 0,
             register_x: 0,
             register_y: 0,
@@ -228,5 +248,23 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         assert_eq!("who let the dogs out who who who ", string);
+    }
+
+    #[test]
+    fn test_dojo3() {
+        // https://raw.githubusercontent.com/timpickles/cpu-dojo/master/resources/worksheets/CPU%20Dojo%203%20-%20Subroutines.pdf
+        let program = [
+            11, 3, // JSR 3
+            0, // BRK
+            1, 0x64, //LDA #$64
+            2, 0x07, //ADC #$07
+            3, 0x0f, //STA $15
+            12,   // RST
+        ];
+        let mut cpu = Cpu::new();
+        cpu.load_program(&program).unwrap();
+        cpu.run();
+        assert_eq!(3, cpu.program_counter);
+        assert_eq!(107, cpu.memory[15]);
     }
 }
